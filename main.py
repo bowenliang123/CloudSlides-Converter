@@ -20,22 +20,26 @@ import path as path
 
 # 监听拉取PPT转换任务
 def pull_convert_task():
-	# r = redis.StrictRedis(host=conf.REDIS_IP)
-	# pptId = r.brpop(cons.TASK_LIST_KEY, 0)
+	r = redis.StrictRedis(host=conf.REDIS_IP)
+	keyIdBytes, pptIdBytes = r.brpop(cons.TASK_LIST_KEY, 0)
 
-	pptId='53da57e9db3dc4be47e74adb'
+	#pptId='53da57e9db3dc4be47e74adb'
+	pptId = pptIdBytes.decode()
+	print(pptId)
 	return pptId
 
 # 获取PPT文件
 def fetchPptFile(pptId):
 	print('fetchPptFile')
-	conn = http.client.HTTPConnection("www.cloudslides.net")
-	conn.request("GET", "/ppt/getPptFile?pptId="+pptId)
-	res = conn.getresponse()
-	pptFiledata = res.read()
+	#conn = http.client.HTTPConnection("www.cloudslides.net")
+	#conn.request("GET", "/ppt/getPptFile?pptId="+pptId)
+	#res = conn.getresponse()
+	#pptFiledata = res.read()
+	res = requests.get('http://cloudslides.net/ppt/getPptFile?pptId='+pptId)
+	pptFileData = res.content
 	ppt_path = path.gen_ppt_path(pptId)
 	with open(ppt_path, "wb") as ppt_file:
-		ppt_file.write(pptFiledata)
+		ppt_file.write(pptFileData)
 pass
 
 # 转换PPT文件
@@ -79,6 +83,9 @@ def uploadImages( pptId, pageCount):
 # 发送转换完毕消息	
 def sendConvertStatus(pptId, pageCount):
 	print('sendConvertStatus')
+	params = {'pptId':pptId, pageCount:pageCount}
+	res = requests.post(conf.CLOUDSLIDES_URL+'/ppt/updateConvertStatus', params = params)
+	print(str(res.status_code))	
 	pass
 
 def main():
@@ -89,24 +96,19 @@ def main():
 	for c in dir(MSO.constants): g[c] = getattr(MSO.constants, c) # globally define these
 	for c in dir(PO.constants): g[c] = getattr(PO.constants, c)
 
-	# while True:
-	# 监听拉取PPT转换任务
-	pptId = pull_convert_task()
+	while True:
+		# 监听拉取PPT转换任务
+		pptId = pull_convert_task()
 
-	# 获取PPT文件
-	fetchPptFile(pptId)
-	# 转换PPT文件
-	pageCount = convertPptToImage(pptId)
-	# 上传幻灯图片
-	uploadImages(pptId, pageCount)
-	# 发送转换完毕消息
-	sendConvertStatus(pptId, pageCount)
-
-
-	# 准备PPT应用
-    # Powerpoint = win32com.client.Dispatch(cons.POWERPOINT_APPLICATION_NAME)
-    # Powerpoint.Visible = True
-    # print("hi")
+		# 获取PPT文件
+		fetchPptFile(pptId)
+		# 转换PPT文件
+		pageCount = convertPptToImage(pptId)
+		# 上传幻灯图片
+		uploadImages(pptId, pageCount)
+		# 发送转换完毕消息
+		sendConvertStatus(pptId, pageCount)
+	
 
 if __name__ == '__main__':
     main()
