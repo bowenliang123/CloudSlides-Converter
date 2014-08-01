@@ -19,35 +19,32 @@ import constant as cons
 import path as path
 
 # 监听拉取PPT转换任务
-def pull_convert_task():
-	r = redis.StrictRedis(host=conf.REDIS_IP)
+def pull_convert_task(redis_pool):
+	print('listening to redis, brpop blocking...')
+	r = redis.Redis(connection_pool=redis_pool)
 	keyIdBytes, pptIdBytes = r.brpop(cons.TASK_LIST_KEY, 0)
 
 	#pptId='53da57e9db3dc4be47e74adb'
 	pptId = pptIdBytes.decode()
-	print(pptId)
+	print('get task with pptId: '+pptId)
 	return pptId
 
 # 获取PPT文件
 def fetchPptFile(pptId):
 	print('fetchPptFile')
-	#conn = http.client.HTTPConnection("www.cloudslides.net")
-	#conn.request("GET", "/ppt/getPptFile?pptId="+pptId)
-	#res = conn.getresponse()
-	#pptFiledata = res.read()
 	res = requests.get('http://cloudslides.net/ppt/getPptFile?pptId='+pptId)
 	pptFileData = res.content
 	ppt_path = path.gen_ppt_path(pptId)
 	with open(ppt_path, "wb") as ppt_file:
 		ppt_file.write(pptFileData)
-pass
 
 # 转换PPT文件
 def convertPptToImage( pptId ):
 	print('convertPptToImage')
 	# 准备PPT应用
 	Powerpoint = win32com.client.Dispatch(cons.POWERPOINT_APPLICATION_NAME);
-	Powerpoint.Visible = True
+	#Powerpoint.Visible = False
+	Powerpoint.DisplayAlerts = False
 
 	#准备路径参数
 	ppt_path = path.gen_ppt_path(pptId) #PPT存放位置
@@ -72,21 +69,18 @@ def uploadImages( pptId, pageCount):
 	print('uploadImages')
 	for index in range(1, pageCount+1):
 		img_path = path.gen_single_png_path(pptId, index)
-		image_file = open(img_path,'rb')
-		image_data = image_file.read()
 		url = "http://cloudslides.net/ppt/uploadImage?"+"pptId="+str(pptId)+"&pageId="+str(index)
 		print(url)
-		res = requests.post(url,files={'file':image_file})
-		image_file.close()
-	pass
+		#上传图片
+		res = requests.post(url,files={'file':open(img_path,'rb')})
+		#清理图片
+		os.remove(img_path);
 
 # 发送转换完毕消息	
 def sendConvertStatus(pptId, pageCount):
 	print('sendConvertStatus')
-	params = {'pptId':pptId, pageCount:pageCount}
-	res = requests.post(conf.CLOUDSLIDES_URL+'/ppt/updateConvertStatus', params = params)
+	res = requests.get(conf.CLOUDSLIDES_URL+'/ppt/updateConvertStatus?pptId='+pptId+'&pageCount='+str(pageCount))
 	print(str(res.status_code))	
-	pass
 
 def main():
 	# 准备工作
@@ -96,9 +90,11 @@ def main():
 	for c in dir(MSO.constants): g[c] = getattr(MSO.constants, c) # globally define these
 	for c in dir(PO.constants): g[c] = getattr(PO.constants, c)
 
+	redis_pool = redis.ConnectionPool(host=conf.REDIS_IP)
+
 	while True:
 		# 监听拉取PPT转换任务
-		pptId = pull_convert_task()
+		pptId = pull_convert_task(redis_pool)
 
 		# 获取PPT文件
 		fetchPptFile(pptId)
